@@ -2,6 +2,7 @@
   "name": "ushi-travel-public-api",
   "main": "index.js",
   "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "vars": {
     "CMS_API_URL": "https://ushi-api-official.brassband06.workers.dev",
     "PUBLIC_CITY_CODES": "paris"
