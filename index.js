@@ -206,6 +206,38 @@ function findExactPlace(places, query) {
   }) || null;
 }
 
+
+function findPublicPlaceByKey(places, key) {
+  const decoded = decodeURIComponent(String(key || "")).trim();
+  const normalized = normalizeText(decoded);
+
+  return places.find(place => {
+    const id = String(place.id ?? "");
+    const canonical = String(place.canonical_key || place.canonicalKey || "");
+    const name = String(place.name || "");
+
+    return (
+      id === decoded ||
+      canonical === decoded ||
+      normalizeText(canonical) === normalized ||
+      normalizeText(name) === normalized
+    );
+  }) || null;
+}
+
+function publicDetail(place) {
+  const detail = publicPlace(place);
+
+  return {
+    ...detail,
+    availability: "available",
+    workflowStatus: "publish_ready",
+    detailUrl: detail.canonicalId
+      ? `/api/public/places/${encodeURIComponent(detail.canonicalId)}`
+      : `/api/public/places/${encodeURIComponent(String(detail.id))}`
+  };
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return json({ ok: true });
@@ -218,8 +250,8 @@ export default {
       if (path === "/" || path === "/health") {
         return json({
           ok: true,
-          version: "PUBLIC-API-V1.4-UNPUBLISHED-EXISTENCE-CHECK",
-          rule: "Only publish-ready content is returned. Unpublished records are used only for checking status and are never exposed."
+          version: "PUBLIC-API-V1.5-INDIVIDUAL-DETAIL",
+          rule: "Only publish-ready content is returned. Individual detail is available by ID, Canonical ID, or exact name. Unpublished records are never exposed."
         });
       }
 
@@ -320,17 +352,59 @@ export default {
       }
 
       if (path.startsWith("/api/public/places/")) {
-        const key = decodeURIComponent(path.split("/").pop() || "");
+        const key = path.slice("/api/public/places/".length);
+        if (!key.trim()) {
+          return json({ ok: false, status: "not_found", message: "施設IDまたはCanonical IDが必要です。" }, 404);
+        }
+
         const places = await getPlaces(env);
-        const found = places.find(place =>
-          String(place.id) === key ||
-          String(place.canonical_key || place.canonicalKey || "") === key
-        );
+        const found = findPublicPlaceByKey(places, key);
 
         if (!found || !isPublishReady(found)) {
-          return json({ ok: false, status: "not_found" }, 404);
+          return json({
+            ok: false,
+            status: "not_found",
+            message: "公開可能な施設が見つかりません。"
+          }, 404);
         }
-        return json({ ok: true, status: "available", place: publicPlace(found) });
+
+        return json({
+          ok: true,
+          status: "available",
+          place: publicDetail(found)
+        });
+      }
+
+      if (path === "/api/public/place") {
+        const key =
+          url.searchParams.get("canonicalId") ||
+          url.searchParams.get("id") ||
+          url.searchParams.get("name") ||
+          "";
+
+        if (!key.trim()) {
+          return json({
+            ok: false,
+            error: "canonicalId, id, or name is required"
+          }, 400);
+        }
+
+        const places = await getPlaces(env);
+        const found = findPublicPlaceByKey(places, key);
+
+        if (!found || !isPublishReady(found)) {
+          return json({
+            ok: false,
+            status: "not_found",
+            message: "公開可能な施設が見つかりません。"
+          }, 404);
+        }
+
+        return json({
+          ok: true,
+          status: "available",
+          place: publicDetail(found)
+        });
       }
 
       if (path === "/api/public/search-status") {
