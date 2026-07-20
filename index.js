@@ -140,6 +140,39 @@ async function getPlaces(env) {
   throw new Error("CMS places endpoint not found. " + attempts.join(" | "));
 }
 
+
+async function getAllPlacesForStatus(env) {
+  const key = String(env.CMS_ADMIN_KEY || "");
+
+  if (!key) {
+    throw new Error("CMS_ADMIN_KEY is required for checking unpublished content.");
+  }
+
+  const candidates = [
+    "/api/admin/places",
+    "/api/admin/places/"
+  ];
+  const attempts = [];
+
+  for (const path of candidates) {
+    try {
+      const data = await cmsRequest(env, path, true);
+      const places =
+        Array.isArray(data.places) ? data.places :
+        Array.isArray(data.items) ? data.items :
+        Array.isArray(data) ? data :
+        null;
+
+      if (places) return places;
+      attempts.push(`${path}: response format mismatch`);
+    } catch (error) {
+      attempts.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  throw new Error("CMS admin places endpoint unavailable. " + attempts.join(" | "));
+}
+
 async function getCities(env) {
   const base = String(env.CMS_API_URL || DEFAULT_CMS_API).replace(/\/$/, "");
   const response = await fetch(base + "/api/cities", {
@@ -185,8 +218,8 @@ export default {
       if (path === "/" || path === "/health") {
         return json({
           ok: true,
-          version: "PUBLIC-API-V1.3-PUBLIC-CMS-ENDPOINT",
-          rule: "Only publish_ready / legacy published content is returned."
+          version: "PUBLIC-API-V1.4-UNPUBLISHED-EXISTENCE-CHECK",
+          rule: "Only publish-ready content is returned. Unpublished records are used only for checking status and are never exposed."
         });
       }
 
@@ -304,30 +337,44 @@ export default {
         const q = url.searchParams.get("q") || "";
         if (!q.trim()) return json({ error: "q is required" }, 400);
 
-        const places = await getPlaces(env);
-        const found = findExactPlace(places, q);
+        const publicPlaces = await getPlaces(env);
+        const publicFound = findExactPlace(publicPlaces, q);
 
-        if (!found) {
+        if (publicFound) {
           return json({
             ok: true,
-            status: "not_registered",
-            message: "この施設はまだ登録されていません。調査リクエストを送信できます。"
+            status: "available",
+            place: publicPlace(publicFound)
           });
         }
 
-        if (!isPublishReady(found)) {
+        let allPlaces;
+        try {
+          allPlaces = await getAllPlacesForStatus(env);
+        } catch (error) {
+          return json({
+            ok: false,
+            status: "status_check_unavailable",
+            error: error instanceof Error ? error.message : String(error),
+            message: "未公開施設の存在確認に必要な管理キーを確認してください。"
+          }, 503);
+        }
+
+        const internalFound = findExactPlace(allPlaces, q);
+
+        if (internalFound) {
           return json({
             ok: true,
             status: "checking",
-            name: found.name || q,
+            name: internalFound.name || q,
             message: "現在、この施設の情報を確認中です。確認が完了すると利用できるようになります。"
           });
         }
 
         return json({
           ok: true,
-          status: "available",
-          place: publicPlace(found)
+          status: "not_registered",
+          message: "この施設はまだ登録されていません。調査リクエストを送信できます。"
         });
       }
 
