@@ -25,12 +25,18 @@ function normalizeWorkflowStatus(place) {
     place.workflowStatus ||
     place.publish_status ||
     place.publishStatus ||
+    place.status ||
     ""
   );
 
   if (raw === "published" || raw === "publish_ready") return "publish_ready";
   if (raw === "ushi_verified") return "ushi_verified";
   if (raw === "needs_review") return "needs_review";
+
+  // CMSの公開専用 /api/places は公開済みデータだけを返すため、
+  // 状態フィールドが省略されていても公開可能として扱う。
+  if (!raw && place.id && place.name) return "publish_ready";
+
   return "ai_draft";
 }
 
@@ -86,19 +92,17 @@ async function fetchCms(env, path, init = {}) {
   return fetch(target, init);
 }
 
-async function cmsRequest(env, path) {
+async function cmsRequest(env, path, requireAdmin = false) {
   const key = String(env.CMS_ADMIN_KEY || "");
 
-  if (!key) {
+  if (requireAdmin && !key) {
     throw new Error("CMS_ADMIN_KEY is not configured.");
   }
 
-  const response = await fetchCms(env, path, {
-    headers: {
-      "X-Admin-Key": key,
-      "accept": "application/json"
-    }
-  });
+  const headers = { "accept": "application/json" };
+  if (key) headers["X-Admin-Key"] = key;
+
+  const response = await fetchCms(env, path, { headers });
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -109,17 +113,17 @@ async function cmsRequest(env, path) {
 
 async function getPlaces(env) {
   const candidates = [
-    "/api/admin/places",
-    "/api/admin/places/",
-    "/api/places",
-    "/places"
+    { path: "/api/places", requireAdmin: false },
+    { path: "/api/admin/places", requireAdmin: true },
+    { path: "/api/admin/places/", requireAdmin: true },
+    { path: "/places", requireAdmin: false }
   ];
 
   const attempts = [];
 
-  for (const path of candidates) {
+  for (const candidate of candidates) {
     try {
-      const data = await cmsRequest(env, path);
+      const data = await cmsRequest(env, candidate.path, candidate.requireAdmin);
       const places =
         Array.isArray(data.places) ? data.places :
         Array.isArray(data.items) ? data.items :
@@ -127,9 +131,9 @@ async function getPlaces(env) {
         null;
 
       if (places) return places;
-      attempts.push(`${path}: response format mismatch`);
+      attempts.push(`${candidate.path}: response format mismatch`);
     } catch (error) {
-      attempts.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+      attempts.push(`${candidate.path}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -181,7 +185,7 @@ export default {
       if (path === "/" || path === "/health") {
         return json({
           ok: true,
-          version: "PUBLIC-API-V1.2-CMS-SERVICE-BINDING",
+          version: "PUBLIC-API-V1.3-PUBLIC-CMS-ENDPOINT",
           rule: "Only publish_ready / legacy published content is returned."
         });
       }
