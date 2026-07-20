@@ -295,6 +295,53 @@ function categorySummary(places) {
   return summary;
 }
 
+
+function resolveRelatedPublicPlaces(sourcePlace, publicPlaces) {
+  const relatedNames = normalizeArray(sourcePlace.related_spots || sourcePlace.relatedSpots);
+  const resolved = [];
+  const unresolved = [];
+
+  for (const relatedName of relatedNames) {
+    const found = findPublicPlaceByKey(publicPlaces, relatedName);
+    if (found) {
+      resolved.push({
+        name: found.name || relatedName,
+        canonicalId: found.canonical_key || found.canonicalKey || "",
+        category: found.category || "",
+        cityCode: found.city_code || found.cityCode || "",
+        score: scoreValue(found),
+        detailUrl: (found.canonical_key || found.canonicalKey)
+          ? `/api/public/places/${encodeURIComponent(found.canonical_key || found.canonicalKey)}`
+          : `/api/public/places/${encodeURIComponent(String(found.id))}`
+      });
+    } else {
+      unresolved.push(String(relatedName));
+    }
+  }
+  return {resolved, unresolved};
+}
+
+function routeItems(sourcePlace, publicPlaces) {
+  const rows = [];
+  for (const raw of normalizeArray(sourcePlace.route)) {
+    const parts = String(raw).split(/→|->|⇒|＞|>/).map(v=>v.trim()).filter(Boolean);
+    for (const part of (parts.length ? parts : [String(raw)])) {
+      const found = findPublicPlaceByKey(publicPlaces, part);
+      rows.push({
+        label: part,
+        canonicalId: found ? (found.canonical_key || found.canonicalKey || "") : "",
+        detailUrl: found
+          ? ((found.canonical_key || found.canonicalKey)
+              ? `/api/public/places/${encodeURIComponent(found.canonical_key || found.canonicalKey)}`
+              : `/api/public/places/${encodeURIComponent(String(found.id))}`)
+          : "",
+        available: Boolean(found)
+      });
+    }
+  }
+  return rows;
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return json({ ok: true });
@@ -307,7 +354,7 @@ export default {
       if (path === "/" || path === "/health") {
         return json({
           ok: true,
-          version: "PUBLIC-API-V1.7-CITY-CATEGORY-LISTS",
+          version: "PUBLIC-API-V1.8-RELATED-SPOTS-ROUTES",
           rule: "Only publish-ready content is returned. City and category lists support filtering, sorting, pagination, and category summaries. Individual detail is available by ID, Canonical ID, or exact name. Unpublished records are never exposed."
         });
       }
@@ -474,10 +521,17 @@ export default {
           }, 404);
         }
 
+        const related = resolveRelatedPublicPlaces(found, places);
+        const route = routeItems(found, places);
         return json({
           ok: true,
           status: "available",
-          place: publicDetail(found)
+          place: {
+            ...publicDetail(found),
+            relatedResolved: related.resolved,
+            relatedUnresolved: related.unresolved,
+            recommendedRouteItems: route
+          }
         });
       }
 
@@ -506,10 +560,52 @@ export default {
           }, 404);
         }
 
+        const related = resolveRelatedPublicPlaces(found, places);
+        const route = routeItems(found, places);
         return json({
           ok: true,
           status: "available",
-          place: publicDetail(found)
+          place: {
+            ...publicDetail(found),
+            relatedResolved: related.resolved,
+            relatedUnresolved: related.unresolved,
+            recommendedRouteItems: route
+          }
+        });
+      }
+
+      if (path === "/api/public/related") {
+        const key =
+          url.searchParams.get("canonicalId") ||
+          url.searchParams.get("id") ||
+          url.searchParams.get("name") ||
+          "";
+
+        if (!key.trim()) return json({ok:false,error:"canonicalId, id, or name is required"},400);
+
+        const places = await getPlaces(env);
+        const found = findPublicPlaceByKey(places,key);
+        if (!found) return json({
+          ok:false,
+          status:"not_found",
+          message:"公開可能な施設が見つかりません。"
+        },404);
+
+        const related=resolveRelatedPublicPlaces(found,places);
+        const route=routeItems(found,places);
+
+        return json({
+          ok:true,
+          status:"available",
+          source:{
+            id:found.id,
+            name:found.name||"",
+            canonicalId:found.canonical_key||found.canonicalKey||""
+          },
+          related:related.resolved,
+          relatedUnresolved:related.unresolved,
+          recommendedRoute:normalizeArray(found.route),
+          recommendedRouteItems:route
         });
       }
 
