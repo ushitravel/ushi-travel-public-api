@@ -238,6 +238,63 @@ function publicDetail(place) {
   };
 }
 
+
+function scoreValue(place) {
+  const value =
+    place.ushi_score ??
+    place.ushiScore ??
+    place.score ??
+    place.ai_score ??
+    place.aiScore ??
+    0;
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function sortPublicPlaces(places, sort) {
+  const rows = [...places];
+
+  if (sort === "name") {
+    return rows.sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), "ja")
+    );
+  }
+
+  if (sort === "checked") {
+    return rows.sort((a, b) =>
+      String(b.checked_at || b.checkedAt || "")
+        .localeCompare(String(a.checked_at || a.checkedAt || ""))
+    );
+  }
+
+  return rows.sort((a, b) => {
+    const scoreDiff = scoreValue(b) - scoreValue(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    return String(a.name || "").localeCompare(String(b.name || ""), "ja");
+  });
+}
+
+function categorySummary(places) {
+  const summary = {
+    hotel: 0,
+    spot: 0,
+    food: 0,
+    other: 0
+  };
+
+  for (const place of places) {
+    const category = String(place.category || "");
+    if (Object.prototype.hasOwnProperty.call(summary, category)) {
+      summary[category] += 1;
+    } else {
+      summary.other += 1;
+    }
+  }
+
+  return summary;
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return json({ ok: true });
@@ -250,8 +307,8 @@ export default {
       if (path === "/" || path === "/health") {
         return json({
           ok: true,
-          version: "PUBLIC-API-V1.6-DETAIL-PUBLIC-ENDPOINT-FIX",
-          rule: "Only publish-ready content is returned. Individual detail is available by ID, Canonical ID, or exact name through the CMS public endpoint. Unpublished records are never exposed."
+          version: "PUBLIC-API-V1.7-CITY-CATEGORY-LISTS",
+          rule: "Only publish-ready content is returned. City and category lists support filtering, sorting, pagination, and category summaries. Individual detail is available by ID, Canonical ID, or exact name. Unpublished records are never exposed."
         });
       }
 
@@ -331,9 +388,13 @@ export default {
         const city = url.searchParams.get("city") || "";
         const category = url.searchParams.get("category") || "";
         const q = normalizeText(url.searchParams.get("q") || "");
+        const sort = url.searchParams.get("sort") || "score";
+        const limitRaw = Number(url.searchParams.get("limit") || 100);
+        const offsetRaw = Number(url.searchParams.get("offset") || 0);
+        const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 100;
+        const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
 
-        const rows = places
-          .filter(isPublishReady)
+        const filtered = places
           .filter(place => cityMatches(place, city))
           .filter(place => categoryMatches(place, category))
           .filter(place => {
@@ -345,10 +406,55 @@ export default {
               ...normalizeArray(place.aliases)
             ].map(normalizeText).join(" ");
             return haystack.includes(q);
-          })
-          .map(publicPlace);
+          });
 
-        return json({ ok: true, count: rows.length, places: rows });
+        const sorted = sortPublicPlaces(filtered, sort);
+        const page = sorted.slice(offset, offset + limit).map(publicPlace);
+
+        return json({
+          ok: true,
+          city: city || "all",
+          category: category || "all",
+          sort,
+          total: sorted.length,
+          count: page.length,
+          offset,
+          limit,
+          hasMore: offset + page.length < sorted.length,
+          categorySummary: categorySummary(filtered),
+          places: page
+        });
+      }
+
+      if (path === "/api/public/city") {
+        const city = url.searchParams.get("code") || "";
+        if (!city.trim()) {
+          return json({ ok: false, error: "code is required" }, 400);
+        }
+
+        const places = await getPlaces(env);
+        const cityPlaces = places.filter(place => cityMatches(place, city));
+
+        return json({
+          ok: true,
+          city,
+          total: cityPlaces.length,
+          categorySummary: categorySummary(cityPlaces),
+          categories: {
+            hotels: sortPublicPlaces(
+              cityPlaces.filter(place => place.category === "hotel"),
+              "score"
+            ).map(publicPlace),
+            spots: sortPublicPlaces(
+              cityPlaces.filter(place => place.category === "spot"),
+              "score"
+            ).map(publicPlace),
+            food: sortPublicPlaces(
+              cityPlaces.filter(place => place.category === "food"),
+              "score"
+            ).map(publicPlace)
+          }
+        });
       }
 
       if (path.startsWith("/api/public/places/")) {
