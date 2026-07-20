@@ -75,15 +75,25 @@ function publicPlace(place) {
   };
 }
 
-async function cmsRequest(env, path) {
+async function fetchCms(env, path, init = {}) {
   const base = String(env.CMS_API_URL || DEFAULT_CMS_API).replace(/\/$/, "");
+  const target = base + path;
+
+  if (env.CMS_SERVICE && typeof env.CMS_SERVICE.fetch === "function") {
+    return env.CMS_SERVICE.fetch(new Request(target, init));
+  }
+
+  return fetch(target, init);
+}
+
+async function cmsRequest(env, path) {
   const key = String(env.CMS_ADMIN_KEY || "");
 
   if (!key) {
     throw new Error("CMS_ADMIN_KEY is not configured.");
   }
 
-  const response = await fetch(base + path, {
+  const response = await fetchCms(env, path, {
     headers: {
       "X-Admin-Key": key,
       "accept": "application/json"
@@ -171,7 +181,7 @@ export default {
       if (path === "/" || path === "/health") {
         return json({
           ok: true,
-          version: "PUBLIC-API-V1.1-CMS-ENDPOINT-FALLBACK",
+          version: "PUBLIC-API-V1.2-CMS-SERVICE-BINDING",
           rule: "Only publish_ready / legacy published content is returned."
         });
       }
@@ -215,7 +225,7 @@ export default {
 
         for (const candidate of candidates) {
           try {
-            const response = await fetch(base + candidate, {
+            const response = await fetchCms(env, candidate, {
               headers: {
                 "X-Admin-Key": String(env.CMS_ADMIN_KEY || ""),
                 "accept": "application/json"
@@ -242,6 +252,7 @@ export default {
           ok: true,
           cmsApiUrl: base,
           cmsAdminKeyConfigured: hasKey,
+          cmsServiceBindingConfigured: Boolean(env.CMS_SERVICE),
           results
         });
       }
