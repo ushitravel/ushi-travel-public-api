@@ -250,8 +250,8 @@ export default {
       if (path === "/" || path === "/health") {
         return json({
           ok: true,
-          version: "PUBLIC-API-V1.5-INDIVIDUAL-DETAIL",
-          rule: "Only publish-ready content is returned. Individual detail is available by ID, Canonical ID, or exact name. Unpublished records are never exposed."
+          version: "PUBLIC-API-V1.6-DETAIL-PUBLIC-ENDPOINT-FIX",
+          rule: "Only publish-ready content is returned. Individual detail is available by ID, Canonical ID, or exact name through the CMS public endpoint. Unpublished records are never exposed."
         });
       }
 
@@ -360,7 +360,7 @@ export default {
         const places = await getPlaces(env);
         const found = findPublicPlaceByKey(places, key);
 
-        if (!found || !isPublishReady(found)) {
+        if (!found) {
           return json({
             ok: false,
             status: "not_found",
@@ -392,7 +392,7 @@ export default {
         const places = await getPlaces(env);
         const found = findPublicPlaceByKey(places, key);
 
-        if (!found || !isPublishReady(found)) {
+        if (!found) {
           return json({
             ok: false,
             status: "not_found",
