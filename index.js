@@ -1,4 +1,3 @@
-
 const DEFAULT_CMS_API = "https://ushi-api-official.brassband06.workers.dev";
 
 function json(data, status = 200) {
@@ -99,8 +98,32 @@ async function cmsRequest(env, path) {
 }
 
 async function getPlaces(env) {
-  const data = await cmsRequest(env, "/api/admin/places");
-  return Array.isArray(data.places) ? data.places : [];
+  const candidates = [
+    "/api/admin/places",
+    "/api/admin/places/",
+    "/api/places",
+    "/places"
+  ];
+
+  const attempts = [];
+
+  for (const path of candidates) {
+    try {
+      const data = await cmsRequest(env, path);
+      const places =
+        Array.isArray(data.places) ? data.places :
+        Array.isArray(data.items) ? data.items :
+        Array.isArray(data) ? data :
+        null;
+
+      if (places) return places;
+      attempts.push(`${path}: response format mismatch`);
+    } catch (error) {
+      attempts.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  throw new Error("CMS places endpoint not found. " + attempts.join(" | "));
 }
 
 async function getCities(env) {
@@ -148,7 +171,7 @@ export default {
       if (path === "/" || path === "/health") {
         return json({
           ok: true,
-          version: "PUBLIC-API-V1-PUBLISH-READY-ONLY",
+          version: "PUBLIC-API-V1.1-CMS-ENDPOINT-FALLBACK",
           rule: "Only publish_ready / legacy published content is returned."
         });
       }
@@ -176,6 +199,50 @@ export default {
             status: "published",
             sortOrder: Number(city.sort_order ?? city.sortOrder ?? 999)
           })).sort((a, b) => a.sortOrder - b.sortOrder)
+        });
+      }
+
+      if (path === "/api/public/debug-cms") {
+        const base = String(env.CMS_API_URL || DEFAULT_CMS_API).replace(/\/$/, "");
+        const hasKey = Boolean(String(env.CMS_ADMIN_KEY || ""));
+        const candidates = [
+          "/api/admin/places",
+          "/api/admin/places/",
+          "/api/places",
+          "/places"
+        ];
+        const results = [];
+
+        for (const candidate of candidates) {
+          try {
+            const response = await fetch(base + candidate, {
+              headers: {
+                "X-Admin-Key": String(env.CMS_ADMIN_KEY || ""),
+                "accept": "application/json"
+              }
+            });
+            const body = await response.text();
+            results.push({
+              path: candidate,
+              status: response.status,
+              ok: response.ok,
+              preview: body.slice(0, 160)
+            });
+          } catch (error) {
+            results.push({
+              path: candidate,
+              status: 0,
+              ok: false,
+              preview: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+
+        return json({
+          ok: true,
+          cmsApiUrl: base,
+          cmsAdminKeyConfigured: hasKey,
+          results
         });
       }
 
