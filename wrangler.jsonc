@@ -1,0 +1,9 @@
+{
+  "name": "ushi-travel-public-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-01",
+  "vars": {
+    "CMS_API_URL": "https://ushi-api-official.brassband06.workers.dev",
+    "PUBLIC_CITY_CODES": "paris"
+  }
+}
