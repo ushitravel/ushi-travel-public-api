@@ -354,8 +354,8 @@ export default {
       if (path === "/" || path === "/health") {
         return json({
           ok: true,
-          version: "PUBLIC-API-V1.8-RELATED-SPOTS-ROUTES",
-          rule: "Only publish-ready content is returned. City and category lists support filtering, sorting, pagination, and category summaries. Individual detail is available by ID, Canonical ID, or exact name. Unpublished records are never exposed."
+          version: "PUBLIC-API-V1.9-SEARCH-CATEGORY-SAFE",
+          rule: "Only publish-ready content is returned. Search status may expose only the category of an unpublished record so hotel queries can be routed safely. No unpublished address, score, access, or content fields are exposed."
         });
       }
 
@@ -643,6 +643,7 @@ export default {
             ok: true,
             status: "checking",
             name: internalFound.name || q,
+            category: String(internalFound.category || ""),
             message: "現在、この施設の情報を確認中です。確認が完了すると利用できるようになります。"
           });
         }
