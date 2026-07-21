@@ -1,5 +1,5 @@
 {
-  "name": "ushi-travel-public-api",
+  "name": "ushi-travel-public-api-v2",
   "main": "index.js",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["global_fetch_strictly_public"],
