@@ -1,10 +1,19 @@
 {
-  "name": "ushi-travel-public-api",
+  "name": "ushi-travel-public-api-v2",
   "main": "index.js",
   "compatibility_date": "2026-07-01",
-  "compatibility_flags": ["global_fetch_strictly_public"],
+  "compatibility_flags": [
+    "global_fetch_strictly_public"
+  ],
   "vars": {
     "CMS_API_URL": "https://ushi-api-official.brassband06.workers.dev",
     "PUBLIC_CITY_CODES": "paris"
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ushi-travel-official-db",
+      "database_id": "3ea2439e-0162-47b4-9d76-55021524d5d4"
+    }
+  ]
 }
